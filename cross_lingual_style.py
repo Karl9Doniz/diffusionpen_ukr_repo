@@ -27,10 +27,6 @@ TRANSFORM = torchvision.transforms.Compose([
 ])
 
 
-# ---------------------------------------------------------------------------
-# Checkpoint helpers (same as generate_sentence.py)
-# ---------------------------------------------------------------------------
-
 def strip_dp_prefix(state_dict):
     new_sd = {}
     for k, v in state_dict.items():
@@ -48,9 +44,6 @@ def detect_num_classes(state_dict):
     raise KeyError("Cannot find label_emb.weight in checkpoint")
 
 
-# ---------------------------------------------------------------------------
-# Image loading helpers
-# ---------------------------------------------------------------------------
 
 def resize_to_canvas(img_pil, height=IMG_HEIGHT, width=IMG_WIDTH):
     """Resize PIL image to (height, width) with white padding if needed."""
@@ -80,10 +73,6 @@ def load_images_from_paths(paths, height=IMG_HEIGHT, width=IMG_WIDTH):
     return torch.stack(imgs) if imgs else None
 
 
-# ---------------------------------------------------------------------------
-# IAM writer loading
-# ---------------------------------------------------------------------------
-
 def get_iam_writer_images(iam_root, writer_id, n=5):
     """Find up to n word image paths for the given IAM writer prefix (e.g. 'a01').
 
@@ -108,10 +97,6 @@ def get_iam_writer_images(iam_root, writer_id, n=5):
         selected.append(selected[0])
     return selected
 
-
-# ---------------------------------------------------------------------------
-# Ukrainian writer index
-# ---------------------------------------------------------------------------
 
 def build_ukr_writer_id_map(meta_file):
     """Build writer_str -> writer_idx mapping (matching UkrWordDataset)."""
@@ -149,10 +134,6 @@ def get_ukr_writer_image_paths(dataset_root, meta_file, writer_str, n=5):
         paths.append(paths[0])
     return paths
 
-
-# ---------------------------------------------------------------------------
-# Style embedding computation
-# ---------------------------------------------------------------------------
 
 @torch.no_grad()
 def compute_style_embedding(image_paths, style_extractor, device,
@@ -211,10 +192,6 @@ def find_nearest_ukr_writer(iam_embedding, ukr_index, top_k=3):
         results.append((wstr, ukr_index[wstr]["idx"], sim_val))
     return results
 
-
-# ---------------------------------------------------------------------------
-# Generation (adapted from generate_sentence.py)
-# ---------------------------------------------------------------------------
 
 @torch.no_grad()
 def generate_word(word, unet, vae, style_extractor, tokenizer,
@@ -292,10 +269,6 @@ def stitch_sentence(word_images, words, gap=16, canvas_height=88, gen_height=64)
 
     return Image.fromarray(np.concatenate(parts, axis=1))
 
-
-# ---------------------------------------------------------------------------
-# Comparison figure
-# ---------------------------------------------------------------------------
 
 def make_strip(image_paths, strip_h=64, max_w=600):
     """Make a horizontal strip from a list of image paths (for reference panel)."""
@@ -387,10 +360,6 @@ def make_comparison_figure(iam_writer, iam_paths,
 args_cfg_scale = 5.0
 
 
-# ---------------------------------------------------------------------------
-# t-SNE visualization
-# ---------------------------------------------------------------------------
-
 def plot_tsne(ukr_index, iam_embeddings, output_path, perplexity=30, seed=42):
     """Plot t-SNE of Ukrainian writer embeddings + IAM writer embeddings.
 
@@ -469,10 +438,6 @@ def plot_tsne(ukr_index, iam_embeddings, output_path, perplexity=30, seed=42):
     print(f"t-SNE saved: {output_path}")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def main():
     global args_cfg_scale
 
@@ -512,7 +477,7 @@ def main():
     device = torch.device(args.device)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # ---- Load style encoder ----
+    # Load style encoder ----
     print("Loading style encoder...")
     style_extractor = ImageEncoder(model_name="mobilenetv2_100", num_classes=0,
                                    pretrained=False, trainable=False)
@@ -524,14 +489,14 @@ def main():
     style_extractor.load_state_dict(model_dict)
     style_extractor = style_extractor.to(device).eval()
 
-    # ---- Build Ukrainian embedding index ----
+    # Build Ukrainian embedding index ----
     writer_id_map = build_ukr_writer_id_map(args.ukr_meta_file)
     ukr_index = build_ukr_embedding_index(
         args.ukr_dataset_root, args.ukr_meta_file,
         writer_id_map, style_extractor, device,
     )
 
-    # ---- Compute IAM embeddings (needed for both t-SNE and generation) ----
+    # Compute IAM embeddings (needed for both t-SNE and generation) ----
     iam_data = {}  # iam_writer_id -> {embedding, match_str, match_sim, paths}
     for iam_writer in args.iam_writers:
         try:
@@ -554,7 +519,6 @@ def main():
             "paths": paths,
         }
 
-    # ---- t-SNE ----
     tsne_path = os.path.join(args.output_dir, "tsne_style_space.png")
     plot_tsne(ukr_index, iam_data, tsne_path, perplexity=args.tsne_perplexity, seed=args.seed)
 
@@ -562,7 +526,6 @@ def main():
         print("--tsne_only: stopping after t-SNE.")
         return
 
-    # ---- Load UNet + VAE ----
     print(f"Loading checkpoint: {args.checkpoint}")
     state_dict = torch.load(args.checkpoint, map_location="cpu")
     state_dict = strip_dp_prefix(state_dict)
@@ -601,7 +564,6 @@ def main():
 
     words = args.text.strip().split()
 
-    # ---- Per IAM writer (use pre-computed iam_data) ----
     summary_rows = []
 
     for iam_writer, data in iam_data.items():
@@ -654,7 +616,6 @@ def main():
         sentence_path = os.path.join(args.output_dir, f"sentence_iam_{iam_writer}.png")
         sentence_img.save(sentence_path)
 
-    # ---- Cosine similarity report ----
     report_path = os.path.join(args.output_dir, "similarity_report.txt")
     with open(report_path, "w") as f:
         f.write("IAM writer  -> UKR writer  (idx)   cosine sim\n")

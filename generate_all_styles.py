@@ -14,9 +14,6 @@ from feature_extractor import ImageEncoder
 from utils.word_cleanup_nafnet import NAFNetWordCleaner
 
 
-# ---------------------------------------------------------------------------
-# Predefined model configs
-# ---------------------------------------------------------------------------
 MODEL_PRESETS = {
     "v2": {
         "checkpoint": "output/diffusionpen_ukr_words_v2/models/ema_ckpt.pt",
@@ -439,7 +436,6 @@ def run_single(args):
     if not writer_indices:
         raise RuntimeError("No style references loaded. Check dataset path.")
 
-    # Generate
     results = generate_word(
         word=args.word,
         unet=unet,

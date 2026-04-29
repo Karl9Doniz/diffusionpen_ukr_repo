@@ -1317,7 +1317,6 @@ def main():
             blend=args.nafnet_blend,
         )
 
-    # --- Resolve dataset ---
     dataset_root = args.dataset_root
     if dataset_root is None:
         for candidate in ["datasets/UkrHandwritten_Words_CC",
@@ -1348,7 +1347,6 @@ def main():
             else:
                 raise ValueError(f"Invalid refs for writer '{k}': expected string or list, got {type(v).__name__}")
 
-    # --- Resolve writer(s) ---
     writer_indices = []
     if args.writer:
         for wstr in args.writer:
@@ -1365,7 +1363,6 @@ def main():
     else:
         parser.error("Specify --writer, --writer_idx, or --random_writer")
 
-    # --- Load style references ---
     print(f"Loading style references from: {dataset_root}")
     style_refs, style_refs_used = load_style_images(
         dataset_root, meta_file, writer_indices, writer_id_map,
@@ -1373,7 +1370,6 @@ def main():
         style_ref_override=style_ref_override,
     )
 
-    # --- Generate ---
     words = args.text.strip().split()
     output_dir = args.output_dir or f"generated/sentence_cfg{args.cfg_scale}"
     os.makedirs(output_dir, exist_ok=True)

@@ -1,14 +1,19 @@
-# DiffusionPen — Ukrainian Handwritten Text Generation
+# Ukrainian Handwritten Text Generation
 
-Adaptation of [DiffusionPen](https://www.ecva.net/papers/eccv_2024/papers_ECCV/html/11492_ECCV_2024_paper.php) (Nikolaidou et al., ECCV 2024) for **Ukrainian handwritten text generation** at the word level.
+A latent diffusion model that generates Ukrainian handwritten text conditioned on writer style and text content. Given a few reference images from a writer, it synthesizes any Ukrainian word in that person's handwriting — then assembles words into full sentence strips.
 
-The original model was trained on the English IAM dataset. This repository replaces the dataset with a Ukrainian handwriting corpus (~37K handwritten lines, 308 writers), retrains the style encoder from scratch for Cyrillic, and fine-tunes the full diffusion pipeline.
+Trained on a Ukrainian handwriting corpus of ~37K handwritten lines from 308 writers. The style encoder is trained from scratch on Cyrillic handwriting using metric learning.
+
+
+Model weights can be found by this links: https://drive.google.com/file/d/1Tt54-LCsak7sp-qInckbXj9hTtQjT_XC/view?usp=share_link.
+
+For the cleaned version of dataset used in the most recent v10 training: https://drive.google.com/file/d/1Tt54-LCsak7sp-qInckbXj9hTtQjT_XC/view?usp=share_link
 
 ---
 
 ## Table of Contents
 
-1. [What this model does](#what-this-model-does)
+1. [What it does](#what-it-does)
 2. [Repository structure](#repository-structure)
 3. [Setup](#setup)
 4. [Download weights](#download-weights)
@@ -19,24 +24,67 @@ The original model was trained on the English IAM dataset. This repository repla
 9. [Evaluation](#evaluation)
 10. [Citation](#citation)
 
+---
 
-## What this model does
+## What it does
 
-Given a few reference images of a writer's handwriting (5 samples), the model generates any Ukrainian word in that writer's style. The diffusion process is conditioned on:
+Given 5 reference handwriting samples from a writer, the model generates any Ukrainian word in that writer's style. Generation is conditioned on:
 
 - **Text content** — via a character-level CANINE encoder
-- **Writer style** — via a MobileNetV2-based style encoder trained with metric learning on Cyrillic handwriting
+- **Writer style** — via a MobileNetV2 style encoder trained with metric learning on Cyrillic handwriting
 
-Words can be assembled into sentence strips with baseline alignment, geometric normalization, and real handwritten punctuation sampled from a punctuation bank.
+Words can be assembled into sentence strips with baseline alignment, geometric normalization, and real handwritten punctuation sampled from a curated punctuation bank.
 
+---
+
+## Repository structure
+
+```
+├── train.py                        # Main training script
+├── generate_all_styles.py          # Generate a word in every writer's style
+├── generate_sentence.py            # Assemble words into sentence strips
+├── unet.py                         # UNet diffusion backbone
+├── feature_extractor.py            # Style encoder wrapper
+├── style_encoder_train_cyrillic.py # Style encoder training for Cyrillic
+├── utils/
+│   ├── ukr_dataset.py              # Ukrainian word-level dataset loader
+│   ├── word_dataset.py             # Cached dataset wrapper
+│   └── word_cleanup_nafnet.py      # NAFNet-based word image denoising
+├── scripts/
+│   ├── segment_ukr_projection.py   # CC-based word segmentation from lines
+│   ├── clean_word_dataset.py       # TrOCR filtering + writer balancing
+│   ├── balance_rare_letters.py     # Rare Cyrillic letter oversampling
+│   ├── build_punct_bank.py         # Extract punctuation crops from dataset
+│   ├── clean_punct_bank.py         # Automatic punctuation bank QC
+│   ├── evaluate_generated_word_cer.py  # CER metric on generated words
+│   ├── evaluate_generated_word_fid.py  # FID metric on generated words
+│   └── run_sentence_sweep.py       # Batch sentence generation script
+├── generated/
+│   └── punct_bank/                 # Handwritten punctuation image bank
+│       ├── comma/ period/ colon/
+│       ├── hyphen/ dash/ semicolon/
+│       └── question/ exclaim/
+├── style_models/
+│   └── ukr_mixed_wt0p7/
+│       └── mixed_ukr_mobilenetv2_100.pth   # Cyrillic style encoder weights
+├── stable-diffusion-v1-5/          # SD v1-5 VAE + scheduler (see Setup)
+│   ├── vae/
+│   └── scheduler/
+└── output/
+    └── <run_name>/
+        └── models/
+            └── ema_ckpt.pt         # Main model checkpoint
+```
+
+---
 
 ## Setup
 
 ### 1. Clone and create environment
 
 ```bash
-git clone <repo-url> DiffusionPen
-cd DiffusionPen
+git clone <repo-url> ukr-htg
+cd ukr-htg
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -46,9 +94,9 @@ Key dependencies: `torch`, `torchvision`, `diffusers`, `transformers`, `accelera
 
 Tested on Python 3.10+, PyTorch 2.x, CUDA 11.8/12.1.
 
-### 2. Download Stable Diffusion v1-5 VAE and scheduler
+### 2. Download the VAE and scheduler
 
-DiffusionPen uses **only the VAE encoder/decoder and DDIM scheduler** from SD v1-5. No text encoder or UNet from SD is used.
+The model uses **only the VAE encoder/decoder and DDIM scheduler** from Stable Diffusion v1-5 — no text encoder or SD UNet.
 
 ```bash
 pip install huggingface_hub
@@ -76,36 +124,36 @@ stable-diffusion-v1-5/
 
 ## Download weights
 
-Download `diffusionpen_ukr_weights.zip` and extract it into the repo root:
+Download `ukr_htg_weights.zip` and extract into the repo root:
 
 ```bash
-unzip diffusionpen_ukr_weights.zip
+unzip ukr_htg_weights.zip
 ```
 
-This will create/populate:
+This creates:
 ```
 checkpoint/ema_ckpt.pt                              # 709 MB — main diffusion model
 style_models/ukr_mixed_wt0p7/
     mixed_ukr_mobilenetv2_100.pth                   # 11 MB  — Cyrillic style encoder
-stable-diffusion-v1-5/vae/ + scheduler/             # 958 MB — SD VAE
+stable-diffusion-v1-5/vae/ + scheduler/             # 958 MB — VAE
 generated/punct_bank/                               # 7 MB   — punctuation bank
 ```
 
-Move the checkpoint to the expected path if needed:
+Move the checkpoint to the expected path:
 ```bash
-mkdir -p output/diffusionpen_ukr_v10/models
-mv checkpoint/ema_ckpt.pt output/diffusionpen_ukr_v10/models/ema_ckpt.pt
+mkdir -p output/ukr_htg_v10/models
+mv checkpoint/ema_ckpt.pt output/ukr_htg_v10/models/ema_ckpt.pt
 ```
 
 ---
 
 ## Inference — word generation
 
-### Generate a single word in all writer styles
+### Generate a word in all writer styles
 
 ```bash
 python generate_all_styles.py \
-  --checkpoint output/diffusionpen_ukr_v10/models/ema_ckpt.pt \
+  --checkpoint output/ukr_htg_v10/models/ema_ckpt.pt \
   --style_path style_models/ukr_mixed_wt0p7/mixed_ukr_mobilenetv2_100.pth \
   --stable_dif_path stable-diffusion-v1-5 \
   --dataset_root /path/to/UkrHandwritten_Words \
@@ -115,13 +163,13 @@ python generate_all_styles.py \
   --output_dir generated/all_styles_Україна
 ```
 
-This produces one PNG per writer plus a combined contact sheet.
+Produces one PNG per writer plus a combined contact sheet.
 
 ### Generate a word for specific writers
 
 ```bash
 python generate_sentence.py \
-  --checkpoint output/diffusionpen_ukr_v10/models/ema_ckpt.pt \
+  --checkpoint output/ukr_htg_v10/models/ema_ckpt.pt \
   --style_path style_models/ukr_mixed_wt0p7/mixed_ukr_mobilenetv2_100.pth \
   --stable_dif_path stable-diffusion-v1-5 \
   --dataset_root /path/to/UkrHandwritten_Words \
@@ -136,27 +184,27 @@ python generate_sentence.py \
 
 | Parameter | Recommended | Notes |
 |-----------|-------------|-------|
-| `--cfg_scale` | `5.0` | Classifier-free guidance scale. 3.0 = softer, 7.0 = sharper but may over-sharpen |
-| `--num_res_blocks` | `2` | Must match training. Default is 2 for v10 checkpoint |
+| `--cfg_scale` | `5.0` | Classifier-free guidance scale. 3–5 is the practical range |
+| `--num_res_blocks` | `2` | Must match training; v10 checkpoint uses 2 |
 | `--seed` | any int | Set for reproducible outputs |
-| `--canvas_height` | `104` | Sentence canvas height in px. Word generation uses 64 internally |
+| `--canvas_height` | `104` | Sentence canvas height in px |
 
 ---
 
 ## Inference — sentence generation
 
-`generate_sentence.py` generates each word individually via diffusion, then assembles them into a sentence strip with:
+`generate_sentence.py` generates each word individually, then assembles them into a sentence strip with:
 
 - Ink geometry measurement and scaling to a common body height
 - Baseline alignment across all words
-- Real handwritten punctuation sampled from the punct bank (style-matched by writer)
+- Real handwritten punctuation from the punct bank, style-matched per writer
 - Optional NAFNet denoising pass
 
 ### Single sentence, multiple writers
 
 ```bash
 python generate_sentence.py \
-  --checkpoint output/diffusionpen_ukr_v10/models/ema_ckpt.pt \
+  --checkpoint output/ukr_htg_v10/models/ema_ckpt.pt \
   --style_path style_models/ukr_mixed_wt0p7/mixed_ukr_mobilenetv2_100.pth \
   --stable_dif_path stable-diffusion-v1-5 \
   --dataset_root /path/to/UkrHandwritten_Words \
@@ -174,7 +222,7 @@ python generate_sentence.py \
 
 Output: one `sentence_writer_{id}.png` per writer in `--output_dir`.
 
-### Batch sweep across multiple sentences (recommended)
+### Batch sweep across multiple sentences
 
 Edit the config at the top of `scripts/run_sentence_sweep.py` (writers, texts, paths), then:
 
@@ -182,15 +230,14 @@ Edit the config at the top of `scripts/run_sentence_sweep.py` (writers, texts, p
 python scripts/run_sentence_sweep.py
 ```
 
-This runs all sentences × all writers and produces a `contact_sheet.png` per sentence (all writers stacked vertically for easy comparison).
+Runs all sentences × all writers and saves a `contact_sheet.png` per sentence (all writers stacked vertically).
 
 ### Punctuation handling
 
-- Commas, periods, colons, semicolons, question and exclamation marks are sampled from the `generated/punct_bank/` image bank
-- Dashes (standalone ` - `) are drawn from the `dash/` subdir (longer marks)
-- Hyphens inside compound words use the `hyphen/` subdir (shorter marks)
-- If no bank is configured, a synthetic dash is drawn as a fallback
-- The bank uses **style-matched sampling**: writer-exact marks are preferred; if unavailable, marks from the K nearest writers by stroke weight are used; otherwise a size-filtered global sample
+- Commas, periods, colons, semicolons, question and exclamation marks are sampled from `generated/punct_bank/`
+- Dashes (standalone ` - `) come from `dash/` (longer marks); hyphens inside compound words from `hyphen/`
+- **Style-matched sampling:** writer-exact marks are preferred; if unavailable, marks from the K nearest writers by stroke weight; otherwise a size-filtered global sample
+- Synthetic fallback if no bank is configured
 
 ---
 
@@ -198,7 +245,7 @@ This runs all sentences × all writers and produces a `contact_sheet.png` per se
 
 ### Step 1 — Prepare the dataset
 
-Start from raw handwritten line images. See `scripts/build_ulcleannaf_v1_pipeline.sh` for the full pipeline. Summary:
+Start from raw handwritten line images:
 
 ```bash
 # 1. Segment lines into words (CC-based, ~5 min for 37K lines)
@@ -239,7 +286,7 @@ python train.py \
   --ukr_meta_file /path/to/METAFILE_balanced.tsv \
   --style_path style_models/ukr_new/model.pth \
   --stable_dif_path stable-diffusion-v1-5 \
-  --save_path output/diffusionpen_ukr_new \
+  --save_path output/ukr_htg_new \
   --device cuda:0 \
   --epochs 200 \
   --batch_size 8 \
@@ -272,81 +319,16 @@ CUDA_VISIBLE_DEVICES=0,1,2 python train.py \
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `--img_height` | `64` | Word-level height. Do not use 1360 (line-level, OOM) |
-| `--num_res_blocks` | `2` | Matches original DiffusionPen paper and v10 checkpoint |
-| `--text_drop_prob` | `0.2` | Enables classifier-free guidance. Without this, CFG has no effect |
+| `--img_height` | `64` | Word-level height |
+| `--num_res_blocks` | `2` | Match this at inference |
+| `--text_drop_prob` | `0.2` | Enables classifier-free guidance; without it CFG has no effect |
 | `--cfg_scale` | `3.0` at train, `5.0` at inference | 5.0 is the empirically best inference scale |
 | `--batch_size` | `8` on 11 GB VRAM, `24` on 3× 11 GB | Adjust to GPU memory |
-| `--save_every` | `20` | Use ≤20 to avoid losing epochs on crash |
-
----
-
-## Dataset pipeline
-
-The training dataset is derived from a Ukrainian handwriting corpus:
-
-| Stage | Count |
-|-------|-------|
-| Source line images | 37,111 |
-| Segmented word crops | 155,001 |
-| After TrOCR + writer-balance filter | 116,707 |
-| After rare-letter oversampling | 126,177 |
-| Writers in final training set | 308 |
-
-Segmentation uses connected-component gap detection (OpenCV `connectedComponentsWithStats`) — chosen because CRAFT, Surya OCR, and EasyOCR all fail on cursive Ukrainian handwriting.
-
----
-
-## Evaluation
-
-### CER (Character Error Rate)
-
-```bash
-python scripts/evaluate_generated_word_cer.py \
-  --checkpoint output/diffusionpen_ukr_v10/models/ema_ckpt.pt \
-  --style_path style_models/ukr_mixed_wt0p7/mixed_ukr_mobilenetv2_100.pth \
-  --stable_dif_path stable-diffusion-v1-5 \
-  --dataset_root /path/to/UkrHandwritten_Words \
-  --meta_file /path/to/METAFILE.tsv \
-  --output_dir generated/cer_eval \
-  --n_samples 5000
-```
-
-Reported results (v10 checkpoint, 5000 seen-word samples):
-
-| Metric | Value |
-|--------|-------|
-| Overall CER | 0.1601 |
-| Writer-macro CER | 0.1596 |
-| CER, length 1–3 | 0.4271 |
-| CER, length 4–6 | 0.1084 |
-| CER, length 7–9 | 0.1212 |
-| CER, length 10+ | 0.1519 |
-| Rare-letter CER | 0.1721 |
-| OOV CER | 0.1556 |
-
-Note: CER is measured with TrOCR, which is imperfect on Ukrainian handwriting — treat as a relative internal metric rather than an absolute quality measure.
-
-### FID (Fréchet Inception Distance)
-
-```bash
-python scripts/evaluate_generated_word_fid.py \
-  --checkpoint output/diffusionpen_ukr_v10/models/ema_ckpt.pt \
-  --style_path style_models/ukr_mixed_wt0p7/mixed_ukr_mobilenetv2_100.pth \
-  --stable_dif_path stable-diffusion-v1-5 \
-  --dataset_root /path/to/UkrHandwritten_Words \
-  --meta_file /path/to/METAFILE.tsv \
-  --output_dir generated/fid_eval \
-  --n_samples 5000
-```
-
-Reported result: **FID = 23.09** (5000 samples, 308 writers).
-
----
+| `--save_every` | `20` | Keep ≤20 to avoid losing work on crash |
 
 ## Citation
 
-If you use this work, please cite both the original DiffusionPen paper and this adaptation:
+The diffusion architecture builds on DiffusionPen (Nikolaidou et al., ECCV 2024):
 
 ```bibtex
 @inproceedings{nikolaidou2024diffusionpen,
